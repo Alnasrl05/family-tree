@@ -281,10 +281,11 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 const dbRef = db.ref('familyTree');
+let firebaseReady = false;
 
 // ═══ LOAD/SAVE ═══
 function load(){
- // First load from localStorage for instant display
+ // Load from localStorage first for instant display
  try{
   let raw=localStorage.getItem(STORE);
   if(!raw){for(const k of OLD_KEYS){raw=localStorage.getItem(k);if(raw)break}}
@@ -296,34 +297,35 @@ function load(){
   }
  }catch{D=JSON.parse(JSON.stringify(DEFAULT))}
 
- // Then sync from Firebase (overrides local if exists)
+ // Listen to Firebase for real-time updates
  dbRef.on('value', snap => {
   const val = snap.val();
+  firebaseReady = true;
   if(val && val.members && val.rootId){
    D = val;
    Object.values(D.members).forEach(m=>{if(!m.photo)m.photo=''});
    localStorage.setItem(STORE, JSON.stringify(D));
    render();
+   console.log('✅ Firebase: data loaded, members:', Object.keys(D.members).length);
+  } else {
+   // Firebase empty — upload local data
+   console.log('📤 Firebase empty, uploading local data...');
+   dbRef.set(D).then(()=>console.log('✅ Upload done'));
   }
+ }, err => {
+  console.error('❌ Firebase error:', err);
  });
 }
 
 function save(){
  try{
   localStorage.setItem(STORE, JSON.stringify(D));
-  // Save to Firebase
-  dbRef.set(D);
+  dbRef.set(D).then(()=>{
+   console.log('✅ Saved to Firebase');
+  }).catch(e=>{
+   console.error('❌ Firebase save error:', e);
+  });
  }catch(e){console.error('Save error:',e)}
-}
-
-// Upload local data to Firebase if Firebase is empty
-function syncInitial(){
- dbRef.once('value', snap => {
-  if(!snap.val()){
-   // Firebase empty, push local data
-   dbRef.set(D);
-  }
- });
 }
 
 // ═══ AUTH ═══
@@ -580,7 +582,6 @@ function doImport(){if(!isAdmin)return;const inp=document.createElement('input')
 // ═══ INIT ═══
 load();render();checkSess();
 setTimeout(fitZoom,200);
-setTimeout(syncInitial,1000);
 
 // ═══ PWA Service Worker ═══
 if('serviceWorker' in navigator){
