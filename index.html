@@ -8,6 +8,8 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>شجرة أبناء محمد الناصري</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;600;700;800&family=Tajawal:wght@300;400;500;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#f0f2f5;--bg2:#ffffff;--bd:#d8dde4;--bd2:#bcc4ce;--tx:#1a2332;--tx2:#4a5568;--tx3:#8896a6;--green:#2e7d32;--blue:#1976d2;--pink:#c2185b;--fd:'Noto Kufi Arabic',sans-serif;--fb:'Tajawal',sans-serif}
@@ -272,28 +274,57 @@ const getCh=(pid)=>Object.values(D.members).filter(m=>m.parentId===pid).sort((a,
 
 let D,selId=null,editId=null,isAdmin=false,zoom=0.5,fGender='male',fPhoto='';
 
+// ═══ FIREBASE ═══
+const firebaseConfig = {
+ databaseURL: "https://alnasrifamily-tree-default-rtdb.firebaseio.com"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const dbRef = db.ref('familyTree');
+
 // ═══ LOAD/SAVE ═══
 function load(){
+ // First load from localStorage for instant display
  try{
-  // Try current key first, then fall back to old keys
   let raw=localStorage.getItem(STORE);
-  if(!raw){
-   for(const k of OLD_KEYS){
-    raw=localStorage.getItem(k);
-    if(raw)break;
-   }
-  }
+  if(!raw){for(const k of OLD_KEYS){raw=localStorage.getItem(k);if(raw)break}}
   if(raw){
    D=JSON.parse(raw);
    Object.values(D.members).forEach(m=>{if(!m.photo)m.photo=''});
-   // Save to current key
-   localStorage.setItem(STORE,JSON.stringify(D));
   }else{
    D=JSON.parse(JSON.stringify(DEFAULT));
   }
  }catch{D=JSON.parse(JSON.stringify(DEFAULT))}
+
+ // Then sync from Firebase (overrides local if exists)
+ dbRef.on('value', snap => {
+  const val = snap.val();
+  if(val && val.members && val.rootId){
+   D = val;
+   Object.values(D.members).forEach(m=>{if(!m.photo)m.photo=''});
+   localStorage.setItem(STORE, JSON.stringify(D));
+   render();
+  }
+ });
 }
-function save(){try{localStorage.setItem(STORE,JSON.stringify(D))}catch{}}
+
+function save(){
+ try{
+  localStorage.setItem(STORE, JSON.stringify(D));
+  // Save to Firebase
+  dbRef.set(D);
+ }catch(e){console.error('Save error:',e)}
+}
+
+// Upload local data to Firebase if Firebase is empty
+function syncInitial(){
+ dbRef.once('value', snap => {
+  if(!snap.val()){
+   // Firebase empty, push local data
+   dbRef.set(D);
+  }
+ });
+}
 
 // ═══ AUTH ═══
 function doLogin(){
@@ -549,6 +580,7 @@ function doImport(){if(!isAdmin)return;const inp=document.createElement('input')
 // ═══ INIT ═══
 load();render();checkSess();
 setTimeout(fitZoom,200);
+setTimeout(syncInitial,1000);
 
 // ═══ PWA Service Worker ═══
 if('serviceWorker' in navigator){
